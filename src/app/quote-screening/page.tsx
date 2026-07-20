@@ -1,7 +1,6 @@
 "use client";
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase } from '@/lib/supabase';
 import { UploadCloud, FileSpreadsheet, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 
 export default function InventoryUploadPortal() {
@@ -23,7 +22,7 @@ export default function InventoryUploadPortal() {
     if (!fileObject) return;
 
     setUploadStatus('parsing');
-    setLogs('Reading uploaded Netstock stock holding spreadsheet...\n');
+    setLogs('Reading uploaded spreadsheet matrix mapping columns...\n');
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -32,35 +31,22 @@ export default function InventoryUploadPortal() {
         const workbook = XLSX.read(bstr, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        
-        // Force reading rows as raw matrix arrays
         const records = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
 
-        setLogs((prev) => prev + `Found ${records.length} total rows inside document. Flushing old inventory snapshot...\n`);
-
-        // 1. Flush last week's stock data to keep the database completely fresh
-        const { error: clearError } = await supabase.from('inventory').delete().neq('branch_location', 'WIPE_ALL');
-        if (clearError) throw clearError;
+        setLogs((prev) => prev + `Found ${records.length} total rows inside document. Filtering headings...\n`);
 
         const inventoryToInsert: any[] = [];
 
-        // 2. Loop row by row through the Netstock array (skipping the header row)
         records.forEach((row: any[], idx: number) => {
           if (idx === 0 || !row || row.length < 2) return; 
 
-          // CALIBRATION TARGETS:
-          // row[0] = Stock Code (Column A)
-          // row[1] = Product Description (Column B)
-          // row[4] = Quantity Available (Adjust index number to match your Qty column)
-          // row[5] = Branch Location (Adjust index number to match your Branch column)
           const itemCode = row[0] ? String(row[0]).trim() : '';
           const description = row[1] ? String(row[1]).trim() : '';
-          const quantity = parseInt(row[4]) || 0;
-          const branch = row[5] ? String(row[5]).trim() : 'Nairobi';
+          const quantity = parseInt(row[2]) || 0;
+          const branch = row[3] ? String(row[3]).trim() : 'Nairobi';
 
-          if (!itemCode || !description) return;
+          if (!itemCode || !description || itemCode.toUpperCase() === 'CUSTOMER' || itemCode.toUpperCase() === 'ITEMS') return;
 
-          // 🧠 Product Intelligence Engine Category Categorization Matrix
           let segment = 'Accessories';
           const descUpper = description.toUpperCase();
 
@@ -81,11 +67,21 @@ export default function InventoryUploadPortal() {
           });
         });
 
-        setLogs((prev) => prev + `Product Intelligence completed. Storing ${inventoryToInsert.length} calibrated assets straight into Supabase tables...\n`);
+        setLogs((prev) => prev + `Product Intelligence engine completed. Handing over ${inventoryToInsert.length} components to secure backend server pipeline...\n`);
 
-        // 3. Batch insert rows live into your cloud table cluster setup
-        const { error: insertError } = await supabase.from('inventory').insert(inventoryToInsert);
-        if (insertError) throw insertError;
+        // 🚀 SECURE REDIRECTION FETCH CALL:
+        // Hit our local server API endpoint instead of the direct cloud address
+        const response = await fetch('/api/upload-inventory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ inventoryData: inventoryToInsert }),
+        });
+
+        const outcome = await response.json();
+
+        if (!response.ok) {
+          throw new Error(outcome.error || 'Server pipeline processing failure');
+        }
 
         setUploadStatus('success');
         setLogs((prev) => prev + `✅ Database Synchronization Complete. Stock Holding Active.`);
