@@ -6,10 +6,10 @@ export async function POST(request: Request) {
     const { inventoryData } = await request.json();
 
     if (!inventoryData || !Array.isArray(inventoryData)) {
-      return NextResponse.json({ error: 'Invalid or missing data payload array' }, { status: 400 });
+      return NextResponse.json({ error: 'Data payload array is empty' }, { status: 400 });
     }
 
-    // 1. Execute the wipe and overwrite safely from our backend server environment
+    // Clear old week stock rows safely from the cloud database
     const { error: deleteError } = await supabase
       .from('inventory')
       .delete()
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
     if (deleteError) throw deleteError;
 
-    // 2. Batch insert the parsed rows cleanly 
+    // Insert the fresh parsed data objects
     const { error: insertError } = await supabase
       .from('inventory')
       .insert(inventoryData);
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, count: inventoryData.length });
   } catch (error: any) {
-    console.error('Server pipeline intercepted: ', error);
-    return NextResponse.json({ error: error.message || 'Database connection dropped' }, { status: 500 });
+    console.error('Server pipeline caught error: ', error);
+    return NextResponse.json({ error: error.message || 'Database write failure' }, { status: 500 });
   }
 }
