@@ -1,170 +1,223 @@
 "use client";
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { UploadCloud, FileSpreadsheet, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { FileSearch, Upload, Cpu, ArrowRight, Layers, FileSpreadsheet, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 
-export default function InventoryUploadPortal() {
+interface QuotedItem {
+  id: number;
+  rawText: string;
+  quantity: number;
+  segment: string;
+  extractedMetrics: {
+    powerKw?: number;
+    powerHp?: number;
+    phase?: string;
+    isThreePhase?: boolean;
+  };
+  matchType: 'Exact' | 'Similar' | 'None';
+  confidence: number;
+  suggestedSubstitute: string;
+  netstockCode: string;
+  availableQty: number;
+}
+
+export default function QuoteScreeningPortal() {
   const [fileName, setFileName] = useState<string | null>(null);
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'parsing' | 'success' | 'error'>('idle');
-  const [logs, setLogs] = useState<string>('');
-  const [fileObject, setFileObject] = useState<File | null>(null);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [parsedItems, setParsedItems] = useState<QuotedItem[]>([]);
+  const [projectName, setProjectName] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.length) {
-      setFileName(e.target.files[0].name);
-      setFileObject(e.target.files[0]);
-      setUploadStatus('idle');
+  // Helper function to extract technical engineering parameters using regular expressions
+  const extractEngineeringMetrics = (text: string) => {
+    const textUpper = text.toUpperCase();
+    let powerKw: number | undefined;
+    let powerHp: number | undefined;
+    let phase = '1PH';
+
+    // 1. Extract Kilowatts (e.g., "9.2KW", "11KW")
+    const kwMatch = textUpper.match(/([0-9.]+)\s*KW/);
+    if (kwMatch) powerKw = parseFloat(kwMatch[1]);
+
+    // 2. Extract Horsepower (e.g., "38HP", "13HP")
+    const hpMatch = textUpper.match(/([0-9.]+)\s*HP/);
+    if (hpMatch) powerHp = parseFloat(hpMatch[1]);
+
+    // 3. Extract Electrical Phase Configurations
+    if (textUpper.includes('3PH') || textUpper.includes('THREE PHASE') || textUpper.includes('415V')) {
+      phase = '3PH';
     }
+
+    return { powerKw, powerHp, phase, isThreePhase: phase === '3PH' };
   };
 
-  const executeDatabaseSync = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!fileObject) return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    setUploadStatus('parsing');
-    setLogs('Reading uploaded spreadsheet matrix mapping columns...\n');
+    setFileName(file.name);
+    setIsProcessing(true);
+    setErrorMessage(null);
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
         const workbook = XLSX.read(bstr, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const records = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+        
+        // Read rows as a raw nested matrix to pull exact columns explicitly
+        const data = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1 });
+        
+        // Fetch active warehouse components where quantities are 1 or greater
+        const { data: dbInventory, error: dbError } = await supabase
+          .from('inventory')
+          .select('*')
+          .gt('quantity_available', 0);
 
-        setLogs((prev) => prev + `Found ${records.length} total rows inside document. Filtering headings...\n`);
+        if (dbError) throw dbError;
 
-        const inventoryToInsert: any[] = [];
+        const extractedItems: QuotedItem[] = [];
+        let runningId = 1;
 
-        records.forEach((row: any[], idx: number) => {
-          if (idx === 0 || !row || row.length < 2) return; 
+        data.forEach((row: any[]) => {
+          if (!row || row.length < 2) return;
 
-          const itemCode = row[0] ? String(row[0]).trim() : '';
-          const description = row[1] ? String(row[1]).trim() : '';
-          const quantity = parseInt(row[2]) || 0;
-          const branch = row[3] ? String(row[3]).trim() : 'Nairobi';
+          // COLUMN CALIBRATION MAP:
+          // Based on your specific D&S Excel layout view:
+          // Column index 1 (B) = Quoted Item Description text
+          // Column index 2 (C) = Quantity count integer
+          const textDescription = row[1] ? String(row[1]).trim() : '';
+          const qty = parseInt(row[2]) || 1;
+          const textUpper = textDescription.toUpperCase();
 
-          if (!itemCode || !description || itemCode.toUpperCase() === 'CUSTOMER' || itemCode.toUpperCase() === 'ITEMS') return;
+          // Skip empty spacing, table layout headings, or generic customer labels
+          if (
+            !textDescription || 
+            textUpper === 'ITEMS' || 
+            textUpper === 'DESCRIPTION' ||
+            textUpper.includes('CUSTOMER') ||
+            textUpper.includes('TOTAL') ||
+            textDescription.length < 4
+          ) {
+            return;
+          }
+
+          // Run the browser-based technical parameter extractor
+          const metrics = extractEngineeringMetrics(textDescription);
 
           let segment = 'Accessories';
-          const descUpper = description.toUpperCase();
+          let matchType: 'Exact' | 'Similar' | 'None' = 'None';
+          let confidence = 0;
+          let substitute = 'No functional technical alternative found with On-Hand count >= 1';
+          let netstockCode = '---';
+          let matchedAvailableQty = 0;
 
-          if (descUpper.includes('MODULE') || descUpper.includes('SOLAR PANEL') || descUpper.includes('CRYSTALLINE')) segment = 'Solar Modules';
-          else if (descUpper.includes('SUNVERTER') || descUpper.includes('INVERTER') || descUpper.includes('CONTROLLER')) segment = 'Solar Inverters';
-          else if (descUpper.includes('PUMP') || descUpper.includes('SUNFLEX') || descUpper.includes('SUBMERSIBLE')) segment = 'Pumps';
-          else if (descUpper.includes('MOTOR')) segment = 'Motors';
-          else if (descUpper.includes('TANK')) segment = 'Tanks';
-          else if (descUpper.includes('PIPE') || descUpper.includes('HDPE') || descUpper.includes('PVC')) segment = 'Pipes & Fittings';
+          // Segment classification based on engineering keywords
+          if (textUpper.includes('MODULE') || textUpper.includes('SOLAR PANEL') || textUpper.includes('COLLECTOR')) segment = 'Solar Modules';
+          else if (textUpper.includes('INVERTER') || textUpper.includes('BATTERY') || textUpper.includes('KWH')) segment = 'Solar Inverters';
+          else if (textUpper.includes('PUMP') || textUpper.includes('SUBMERSIBLE')) segment = 'Pumps';
+          else if (textUpper.includes('MOTOR') || textUpper.includes('KDI')) segment = 'Motors';
 
-          inventoryToInsert.push({
-            netstock_code: itemCode,
-            description: description,
-            quantity_available: quantity,
-            branch_location: branch,
-            product_segment: segment,
-            condition_status: 'Available'
+          // 🧠 THE TECHNICAL PERFORMANCE MATCHING ENGINE
+          if (dbInventory && dbInventory.length > 0) {
+            for (const stockItem of dbInventory) {
+              const stockDescUpper = stockItem.description.toUpperCase();
+              const stockMetrics = extractEngineeringMetrics(stockItem.description);
+
+              // Tier 1 Validation: Direct text string or code alignment
+              if (textUpper.includes(stockItem.netstock_code.toUpperCase()) || textUpper === stockDescUpper) {
+                matchType = 'Exact';
+                confidence = 100;
+                substitute = stockItem.description;
+                netstockCode = stockItem.netstock_code;
+                matchedAvailableQty = stockItem.quantity_available;
+                break;
+              }
+
+              // Tier 2 Validation: Cross-Brand Performance Evaluation Board
+              // Verify segment alignment first before running performance cross-checks
+              const isSameSegment = 
+                (segment === 'Pumps' && (stockDescUpper.includes('PUMP') || stockDescUpper.includes('SUBMERSIBLE'))) ||
+                (segment === 'Motors' && (stockDescUpper.includes('MOTOR') || stockDescUpper.includes('ENGINE') || stockDescUpper.includes('KOHLER'))) ||
+                (segment === 'Solar Modules' && (stockDescUpper.includes('MODULE') || stockDescUpper.includes('SOLAR') || stockDescUpper.includes('COLLECTOR')));
+
+              if (isSameSegment) {
+                // A: Cross-checking Pump Performance Metrics (Kilowatt & Electrical Phase Alignment)
+                if (metrics.powerKw && stockMetrics.powerKw) {
+                  const powerVariance = Math.abs(metrics.powerKw - stockMetrics.powerKw);
+                  if (powerVariance <= 1.0 && metrics.phase === stockMetrics.phase) {
+                    matchType = 'Similar';
+                    confidence = powerVariance === 0 ? 95 : 85;
+                    substitute = `${stockItem.description} (Cross-Brand Substitute Option)`;
+                    netstockCode = stockItem.netstock_code;
+                    matchedAvailableQty = stockItem.quantity_available;
+                    if (powerVariance === 0) break; 
+                  }
+                }
+
+                // B: Cross-checking Heavy Engine/Motor Metrics (Horsepower Performance Alignment)
+                if (metrics.powerHp && stockMetrics.powerHp) {
+                  const hpVariance = Math.abs(metrics.powerHp - stockMetrics.powerHp);
+                  if (hpVariance <= 5.0) { // Tolerances up to 5HP variance for field applications
+                    matchType = 'Similar';
+                    confidence = hpVariance === 0 ? 95 : 80;
+                    substitute = `${stockItem.description} (Performance Equal Option)`;
+                    netstockCode = stockItem.netstock_code;
+                    matchedAvailableQty = stockItem.quantity_available;
+                    if (hpVariance === 0) break;
+                  }
+                }
+              }
+            }
+          }
+
+          extractedItems.push({
+            id: runningId++,
+            rawText: textDescription,
+            quantity: qty,
+            segment,
+            extractedMetrics: metrics,
+            matchType,
+            confidence,
+            suggestedSubstitute: substitute,
+            netstockCode,
+            availableQty: matchedAvailableQty
           });
         });
 
-        setLogs((prev) => prev + `Product Intelligence engine completed. Handing over ${inventoryToInsert.length} components to secure backend server pipeline...\n`);
-
-        // 🚀 SECURE REDIRECTION FETCH CALL:
-        // Hit our local server API endpoint instead of the direct cloud address
-        const response = await fetch('/api/upload-inventory', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ inventoryData: inventoryToInsert }),
-        });
-
-        const outcome = await response.json();
-
-        if (!response.ok) {
-          throw new Error(outcome.error || 'Server pipeline processing failure');
-        }
-
-        setUploadStatus('success');
-        setLogs((prev) => prev + `✅ Database Synchronization Complete. Stock Holding Active.`);
+        setParsedItems(extractedItems);
       } catch (err: any) {
         console.error(err);
-        setUploadStatus('error');
-        setLogs((prev) => prev + `❌ Sync Intercepted: ${err.message || err}`);
+        setErrorMessage(err.message || 'Error executing matching arrays.');
+      } finally {
+        setIsProcessing(false);
       }
     };
-    reader.readAsBinaryString(fileObject);
+    reader.readAsBinaryString(file);
   };
 
   return (
     <main className="flex-1 p-8 w-full h-full overflow-y-auto bg-slate-950 text-slate-100">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6">
         <div>
-          <h2 className="text-2xl font-black text-white tracking-tight">Portal 1: Inventory Refresh Portal</h2>
-          <p className="text-sm text-slate-400 mt-1">Upload your master weekly Netstock export to parse engineering segments and sync live warehouse quantities.</p>
+          <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+            <FileSearch className="text-teal-400" size={26} /> Portal 2: CSR Performance Database Matcher
+          </h2>
+          <p className="text-sm text-slate-400 mt-1">Cross-examine equipment parameters (kW, HP, Phases) directly against physical on-hand stocks.</p>
         </div>
 
-        <form onSubmit={executeDatabaseSync} className="space-y-6">
-          <div className="border-2 border-dashed rounded-2xl p-12 flex flex-col items-center justify-center text-center transition-all bg-slate-900/40 border-slate-800 hover:border-slate-700">
-            <div className="p-4 bg-slate-950 rounded-full border border-slate-800 text-teal-400 mb-4 shadow-xl">
-              <UploadCloud size={32} />
-            </div>
-            {fileName ? (
-              <div className="flex items-center space-x-2 text-emerald-400 bg-emerald-500/10 px-4 py-2 rounded-lg border border-emerald-500/20">
-                <FileSpreadsheet size={18} />
-                <span className="text-sm font-semibold">{fileName}</span>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <p className="text-sm font-bold text-white">Drag or select your weekly Netstock export spreadsheet here</p>
-                <p className="text-xs text-slate-500">Supports raw standard formatting sheets containing code, text rows, and quantity values.</p>
-              </div>
-            )}
-            <input type="file" accept=".csv,.xlsx" className="hidden" id="fileRoot" onChange={handleFileChange} />
-            {!fileName && (
-              <label htmlFor="fileRoot" className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg border border-slate-700 cursor-pointer transition-all">
-                Browse Files
-              </label>
-            )}
+        {errorMessage && (
+          <div className="bg-rose-500/10 border border-rose-500/20 p-4 rounded-xl flex items-center space-x-3 text-rose-400 text-xs">
+            <XCircle size={16} />
+            <span><strong>Database Intercept Error:</strong> {errorMessage}</span>
           </div>
+        )}
 
-          {uploadStatus === 'parsing' && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-start space-x-4">
-              <RefreshCw className="text-teal-400 animate-spin mt-1 shrink-0" size={20} />
-              <div className="w-full">
-                <p className="text-sm font-bold text-white">Product Intelligence Pipeline Running...</p>
-                <pre className="text-[11px] font-mono text-slate-400 mt-2 bg-slate-950 p-3 rounded-lg max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed">{logs}</pre>
-              </div>
-            </div>
-          )}
-
-          {uploadStatus === 'success' && (
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 flex items-center space-x-4">
-              <CheckCircle className="text-emerald-400" size={20} />
-              <div>
-                <p className="text-sm font-bold text-emerald-400">Cloud Storage Sync Complete!</p>
-                <p className="text-xs text-slate-400">Netstock inventory rows are completely parsed and saved in your live Supabase cloud database.</p>
-              </div>
-            </div>
-          )}
-
-          {uploadStatus === 'error' && (
-            <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 flex items-start space-x-4">
-              <AlertCircle className="text-rose-400 mt-0.5 shrink-0" size={20} />
-              <div>
-                <p className="text-sm font-bold text-rose-400">Database Connection Intercepted</p>
-                <pre className="text-[11px] font-mono text-rose-300 mt-1 bg-slate-950 p-2 rounded-lg">{logs}</pre>
-              </div>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={!fileName || uploadStatus === 'parsing'}
-            className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-slate-800 text-white font-bold py-3 px-4 rounded-xl text-sm transition-all shadow-lg disabled:cursor-not-allowed shadow-teal-600/10"
-          >
-            Execute Inventory Overwrite &amp; Cloud Parse
-          </button>
-        </form>
-      </div>
-    </main>
-  );
-}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl space-y-4 shadow-xl h-fit">
+            <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Project Identification</h3>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-400">Target Project Name</label>

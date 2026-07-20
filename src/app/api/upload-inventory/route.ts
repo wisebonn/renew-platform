@@ -6,10 +6,10 @@ export async function POST(request: Request) {
     const { inventoryData } = await request.json();
 
     if (!inventoryData || !Array.isArray(inventoryData)) {
-      return NextResponse.json({ error: 'Data payload array is empty' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing inventory records payload array' }, { status: 400 });
     }
 
-    // Clear old week stock rows safely from the cloud database
+    // 1. Clean out old entries to avoid data duplication issues
     const { error: deleteError } = await supabase
       .from('inventory')
       .delete()
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
     if (deleteError) throw deleteError;
 
-    // Insert the fresh parsed data objects
+    // 2. Batch insert the fresh parsed assets from Netstock
     const { error: insertError } = await supabase
       .from('inventory')
       .insert(inventoryData);
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, count: inventoryData.length });
   } catch (error: any) {
-    console.error('Server pipeline caught error: ', error);
-    return NextResponse.json({ error: error.message || 'Database write failure' }, { status: 500 });
+    console.error('Database sync error caught: ', error);
+    return NextResponse.json({ error: error.message || 'Server processing drop' }, { status: 500 });
   }
 }
