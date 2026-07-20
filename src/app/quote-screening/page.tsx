@@ -1,188 +1,173 @@
 "use client";
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { FileSearch, Upload, Cpu, ArrowRight, Layers, FileSpreadsheet } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { UploadCloud, FileSpreadsheet, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 
-interface QuotedItem {
-  id: number;
-  rawText: string;
-  quantity: number;
-  segment: string;
-  brand: string;
-  rating: string;
-  matchType: 'Exact' | 'Similar' | 'None';
-  confidence: number;
-  suggestedSubstitute: string;
-  netstockCode: string;
-}
-
-export default function QuoteScreeningPortal() {
+export default function InventoryUploadPortal() {
   const [fileName, setFileName] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [parsedItems, setParsedItems] = useState<QuotedItem[]>([]);
-  const [projectName, setProjectName] = useState<string>('');
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'parsing' | 'success' | 'error'>('idle');
+  const [logs, setLogs] = useState<string>('');
+  const [fileObject, setFileObject] = useState<File | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    if (e.target.files?.length) {
+      setFileName(e.target.files[0].name);
+      setFileObject(e.target.files[0]);
+      setUploadStatus('idle');
+    }
+  };
 
-    setFileName(file.name);
-    setIsProcessing(true);
+  const executeDatabaseSync = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fileObject) return;
+
+    setUploadStatus('parsing');
+    setLogs('Reading uploaded Netstock stock holding spreadsheet...\n');
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
         const workbook = XLSX.read(bstr, { type: 'binary' });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1 });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
         
-        const extractedItems: QuotedItem[] = [];
-        let runningId = 1;
+        // Force reading rows as raw matrix arrays
+        const records = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
 
-        data.forEach((row: any) => {
-          if (!row || row.length === 0) return;
-          const textDescription = String(row[0] || '').trim();
-          const qty = parseInt(row[1]) || 1;
+        setLogs((prev) => prev + `Found ${records.length} total rows inside document. Flushing old inventory snapshot...\n`);
 
-          if (!textDescription || textDescription.toLowerCase().includes('item') || textDescription.toLowerCase().includes('total')) {
-            return;
-          }
+        // 1. Flush last week's stock data to keep the database completely fresh
+        const { error: clearError } = await supabase.from('inventory').delete().neq('branch_location', 'WIPE_ALL');
+        if (clearError) throw clearError;
 
+        const inventoryToInsert: any[] = [];
+
+        // 2. Loop row by row through the Netstock array (skipping the header row)
+        records.forEach((row: any[], idx: number) => {
+          if (idx === 0 || !row || row.length < 2) return; 
+
+          // CALIBRATION TARGETS:
+          // row[0] = Stock Code (Column A)
+          // row[1] = Product Description (Column B)
+          // row[4] = Quantity Available (Adjust index number to match your Qty column)
+          // row[5] = Branch Location (Adjust index number to match your Branch column)
+          const itemCode = row[0] ? String(row[0]).trim() : '';
+          const description = row[1] ? String(row[1]).trim() : '';
+          const quantity = parseInt(row[4]) || 0;
+          const branch = row[5] ? String(row[5]).trim() : 'Nairobi';
+
+          if (!itemCode || !description) return;
+
+          // 🧠 Product Intelligence Engine Category Categorization Matrix
           let segment = 'Accessories';
-          let rating = 'N/A';
-          let matchType: 'Exact' | 'Similar' | 'None' = 'None';
-          let confidence = 0;
-          let substitute = 'No match found in stock';
-          let netstockCode = '---';
+          const descUpper = description.toUpperCase();
 
-          const textUpper = textDescription.toUpperCase();
+          if (descUpper.includes('MODULE') || descUpper.includes('SOLAR PANEL') || descUpper.includes('CRYSTALLINE')) segment = 'Solar Modules';
+          else if (descUpper.includes('SUNVERTER') || descUpper.includes('INVERTER') || descUpper.includes('CONTROLLER')) segment = 'Solar Inverters';
+          else if (descUpper.includes('PUMP') || descUpper.includes('SUNFLEX') || descUpper.includes('SUBMERSIBLE')) segment = 'Pumps';
+          else if (descUpper.includes('MOTOR')) segment = 'Motors';
+          else if (descUpper.includes('TANK')) segment = 'Tanks';
+          else if (descUpper.includes('PIPE') || descUpper.includes('HDPE') || descUpper.includes('PVC')) segment = 'Pipes & Fittings';
 
-          if (textUpper.includes('MODULE') || textUpper.includes('SOLAR PANEL')) {
-            segment = 'Solar Modules';
-            rating = textUpper.includes('350W') ? '350W' : 'Generic';
-            if (textUpper.includes('350W')) { 
-              matchType = 'Exact'; 
-              confidence = 100; 
-              substitute = 'Dayliff 350W 24VDC Crystalline Module'; 
-              netstockCode = 'SLM-DL-350W'; 
-            }
-          } else if (textUpper.includes('SUNVERTER') || textUpper.includes('INVERTER')) {
-            segment = 'Solar Inverters';
-            rating = textUpper.includes('7KW') ? '7kW' : textUpper.includes('5KW') ? '5kW' : 'Generic';
-            if (textUpper.includes('7KW')) { 
-              matchType = 'Exact'; 
-              confidence = 98; 
-              substitute = 'Dayliff Sunverter B.3 7kW Solar Inverter'; 
-              netstockCode = 'INV-DL-SV7'; 
-            } else { 
-              matchType = 'Similar'; 
-              confidence = 74; 
-              substitute = 'Dayliff Sunverter B.3 7.5kW (Engineering Check)'; 
-              netstockCode = 'INV-DL-SV7.5'; 
-            }
-          } else if (textUpper.includes('PUMP') || textUpper.includes('DAYLIFF DS')) {
-            segment = 'Pumps'; 
-            matchType = 'Similar'; 
-            confidence = 88; 
-            substitute = 'Dayliff DS 3-15 Submersible (Matches Duty Point)'; 
-            netstockCode = 'PMP-DL-DS315'; 
-            rating = 'Duty Point Met';
-          } else if (textUpper.includes('CABLE') || textUpper.includes('WIRE')) {
-            segment = 'Accessories'; 
-            rating = '4mm 4-Core'; 
-            matchType = 'Exact'; 
-            confidence = 100; 
-            substitute = '4mm 4-Core Copper Underground Cable'; 
-            netstockCode = 'CAB-UG-4MM';
-          }
-
-          extractedItems.push({ id: runningId++, rawText: textDescription, quantity: qty, segment, brand: 'Dayliff', rating, matchType, confidence, suggestedSubstitute: substitute, netstockCode });
+          inventoryToInsert.push({
+            netstock_code: itemCode,
+            description: description,
+            quantity_available: quantity,
+            branch_location: branch,
+            product_segment: segment,
+            condition_status: 'Available'
+          });
         });
-        setParsedItems(extractedItems);
-      } catch (err) { 
-        console.error(err); 
-      } finally { 
-        setIsProcessing(false); 
+
+        setLogs((prev) => prev + `Product Intelligence completed. Storing ${inventoryToInsert.length} calibrated assets straight into Supabase tables...\n`);
+
+        // 3. Batch insert rows live into your cloud table cluster setup
+        const { error: insertError } = await supabase.from('inventory').insert(inventoryToInsert);
+        if (insertError) throw insertError;
+
+        setUploadStatus('success');
+        setLogs((prev) => prev + `✅ Database Synchronization Complete. Stock Holding Active.`);
+      } catch (err: any) {
+        console.error(err);
+        setUploadStatus('error');
+        setLogs((prev) => prev + `❌ Sync Intercepted: ${err.message || err}`);
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsBinaryString(fileObject);
   };
 
   return (
     <main className="flex-1 p-8 w-full h-full overflow-y-auto bg-slate-950 text-slate-100">
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-            <FileSearch className="text-teal-400" size={26} /> Portal 2: CSR Quote Screening Engine
-          </h2>
-          <p className="text-sm text-slate-400 mt-1">Drop an engineering quote spreadsheet to parse component descriptions and run real-time matching checks.</p>
+          <h2 className="text-2xl font-black text-white tracking-tight">Portal 1: Inventory Refresh Portal</h2>
+          <p className="text-sm text-slate-400 mt-1">Upload your master weekly Netstock export to parse engineering segments and sync live warehouse quantities.</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl space-y-4 shadow-xl h-fit">
-            <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Project Identification</h3>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-400">Target Project Name</label>
-              <input type="text" placeholder="e.g., ChildFund Narok Borehole" value={projectName} onChange={(e) => setProjectName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-lg p-2.5 text-sm text-white focus:outline-none transition-all" />
+        <form onSubmit={executeDatabaseSync} className="space-y-6">
+          <div className="border-2 border-dashed rounded-2xl p-12 flex flex-col items-center justify-center text-center transition-all bg-slate-900/40 border-slate-800 hover:border-slate-700">
+            <div className="p-4 bg-slate-950 rounded-full border border-slate-800 text-teal-400 mb-4 shadow-xl">
+              <UploadCloud size={32} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-400">Upload Quotation Spreadsheet</label>
-              <label className="border border-dashed border-slate-800 bg-slate-950/60 hover:bg-slate-900 rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-all text-center">
-                <Upload size={24} className="text-slate-500 mb-2" />
-                <span className="text-xs font-bold text-slate-300">Choose Excel Quote File</span>
-                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileChange} />
-              </label>
-            </div>
-            {fileName && ( <div className="flex items-center space-x-2 text-teal-400 bg-teal-500/5 border border-teal-500/10 p-2.5 rounded-lg text-xs"><FileSpreadsheet size={16} /><span className="truncate font-semibold">{fileName}</span></div> )}
-          </div>
-
-          <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl flex flex-col min-h-[400px]">
-            <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2"><Cpu size={16} className="text-teal-400" /> Product Intelligence Parser Output</h3>
-            {isProcessing ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 space-y-2"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500"></div><p className="text-xs font-medium">Running Matching Engine matrices...</p></div>
-            ) : parsedItems.length > 0 ? (
-              <div className="flex-1 overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 font-semibold bg-slate-950/40">
-                      <th className="p-3">Quoted Item Description</th>
-                      <th className="p-3">Segment</th>
-                      <th className="p-3 text-center">Qty</th>
-                      <th className="p-3 text-center">Match Status</th>
-                      <th className="p-3">Suggested Stock Substitute</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {parsedItems.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-800/30 transition-colors">
-                        <td className="p-3 font-medium text-slate-200 max-w-xs truncate">{item.rawText}</td>
-                        <td className="p-3 text-slate-400"><span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-medium border border-slate-700/60 text-slate-300">{item.segment}</span></td>
-                        <td className="p-3 text-center text-slate-300 font-semibold">{item.quantity}</td>
-                        <td className="p-3 text-center">
-                          <span className="font-bold uppercase tracking-wider text-[10px]">
-                            {item.matchType} ({item.confidence}%)
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-300">
-                          <span className="truncate max-w-xs block">{item.suggestedSubstitute}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="mt-6 flex justify-end"><button type="button" className="flex items-center gap-2 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs py-2.5 px-4 rounded-lg shadow-lg transition-all">Commit to Technical Hold Queue <ArrowRight size={14} /></button></div>
+            {fileName ? (
+              <div className="flex items-center space-x-2 text-emerald-400 bg-emerald-500/10 px-4 py-2 rounded-lg border border-emerald-500/20">
+                <FileSpreadsheet size={18} />
+                <span className="text-sm font-semibold">{fileName}</span>
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-slate-800 rounded-xl bg-slate-950/20">
-                <Layers size={32} className="text-slate-700 mb-2" />
-                <p className="text-xs font-bold text-slate-400">Waiting for Quote Document</p>
-                <p className="text-[10px] text-slate-600 max-w-xs mt-0.5">Please specify a project identity title and select an engineering quotation excel worksheet above.</p>
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-white">Drag or select your weekly Netstock export spreadsheet here</p>
+                <p className="text-xs text-slate-500">Supports raw standard formatting sheets containing code, text rows, and quantity values.</p>
               </div>
             )}
+            <input type="file" accept=".csv,.xlsx" className="hidden" id="fileRoot" onChange={handleFileChange} />
+            {!fileName && (
+              <label htmlFor="fileRoot" className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg border border-slate-700 cursor-pointer transition-all">
+                Browse Files
+              </label>
+            )}
           </div>
-        </div>
+
+          {uploadStatus === 'parsing' && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-start space-x-4">
+              <RefreshCw className="text-teal-400 animate-spin mt-1 shrink-0" size={20} />
+              <div className="w-full">
+                <p className="text-sm font-bold text-white">Product Intelligence Pipeline Running...</p>
+                <pre className="text-[11px] font-mono text-slate-400 mt-2 bg-slate-950 p-3 rounded-lg max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed">{logs}</pre>
+              </div>
+            </div>
+          )}
+
+          {uploadStatus === 'success' && (
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 flex items-center space-x-4">
+              <CheckCircle className="text-emerald-400" size={20} />
+              <div>
+                <p className="text-sm font-bold text-emerald-400">Cloud Storage Sync Complete!</p>
+                <p className="text-xs text-slate-400">Netstock inventory rows are completely parsed and saved in your live Supabase cloud database.</p>
+              </div>
+            </div>
+          )}
+
+          {uploadStatus === 'error' && (
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 flex items-start space-x-4">
+              <AlertCircle className="text-rose-400 mt-0.5 shrink-0" size={20} />
+              <div>
+                <p className="text-sm font-bold text-rose-400">Database Connection Intercepted</p>
+                <pre className="text-[11px] font-mono text-rose-300 mt-1 bg-slate-950 p-2 rounded-lg">{logs}</pre>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={!fileName || uploadStatus === 'parsing'}
+            className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-slate-800 text-white font-bold py-3 px-4 rounded-xl text-sm transition-all shadow-lg disabled:cursor-not-allowed shadow-teal-600/10"
+          >
+            Execute Inventory Overwrite &amp; Cloud Parse
+          </button>
+        </form>
       </div>
     </main>
   );
