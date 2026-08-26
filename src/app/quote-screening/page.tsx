@@ -4,6 +4,7 @@ import { useState } from "react";
 import * as XLSX from "xlsx";
 import { matchQuoteToInventory } from "@/lib/matcher-utils";
 import { useInventory } from "../Providers";
+import { supabase } from "@/lib/supabase";
 
 export default function QuoteScreening() {
   const { inventory } = useInventory();
@@ -16,40 +17,52 @@ export default function QuoteScreening() {
   };
 
   const handleAnalyzeSizing = async () => {
-    if (!quoteFile) {
-      alert("Please upload the Quote file.");
-      return;
-    }
-    if (!inventory || inventory.length === 0) {
-      alert("No inventory found. Please go to the Inventory Upload page and upload the Stock Holding file first.");
-      return;
-    }
+    if (!quoteFile) return alert("Upload Quote");
+    if (!inventory.length) return alert("Upload Inventory first");
 
     setIsLoading(true);
-
     try {
-      const quoteData = await quoteFile.arrayBuffer();
-      const quoteWorkbook = XLSX.read(quoteData);
-      const quoteSheet = quoteWorkbook.Sheets[quoteWorkbook.SheetNames[0]];
-      const quoteItems = XLSX.utils.sheet_to_json(quoteSheet, { defval: "" });
-
-      const result = matchQuoteToInventory(quoteItems, inventory);
-      setMatches(result);
-      
-      if (result.length === 0) {
-        alert("No matches found based on your rules.");
-      }
-    } catch (error) {
-      console.error("Error parsing files", error);
-      alert("There was an error reading the quote file.");
+      const data = await quoteFile.arrayBuffer();
+      const wb = XLSX.read(data);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const quoteItems = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      setMatches(matchQuoteToInventory(quoteItems, inventory));
+    } catch (e) {
+      alert("Error reading file");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleReserve = (match: any) => {
-    console.log("Reserving item:", match.inventoryItem);
-    alert(`Reserved: ${match.inventoryItem["Description"]}`);
+  const handleReserve = async (match: any) => {
+    const { data: invItem, error: invError } = await supabase
+      .from('inventory')
+      .upsert({
+        netstock_code: match.inventoryItem["Product code"] || "N/A",
+        description: match.inventoryItem["Description"],
+        category: match.matchType,
+        on_hand: match.inventoryItem["On hand"] || 0
+      })
+      .select()
+      .single();
+
+    if (invError) return alert("Error saving inventory: " + invError.message);
+
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + 30);
+
+    const { error: resError } = await supabase
+      .from('reservations')
+      .insert([{ 
+        inventory_id: invItem.id, 
+        status: 'reserved',
+        expires_at: expiry.toISOString()
+      }]);
+
+    if (resError) return alert("Error reserving: " + resError.message);
+    
+    alert("Successfully reserved for 30 days!");
+    setMatches(matches.filter(m => m !== match));
   };
 
   const handleDecline = (match: any) => {
@@ -57,85 +70,40 @@ export default function QuoteScreening() {
   };
 
   return (
-    <main className="w-full">
+    <main className="w-full text-white">
       <div className="max-w-7xl mx-auto space-y-6">
-        
-        <div className="border-b border-slate-800 pb-4">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            Quote Screening Engine
-          </h2>
+        <div className="border-b border-blue-800 pb-4">
+          <h2 className="text-xl font-bold text-white">Quote Screening Engine</h2>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-lg shadow-xl sticky top-8 space-y-4">
-            <h3 className="text-lg font-bold text-slate-400 uppercase tracking-wider">
-              Upload Quote
-            </h3>
-            
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">1. Quote File</label>
-              <input 
-                type="file" 
-                accept=".xlsx,.xls" 
-                onChange={handleQuoteUpload}
-                className="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer"
-              />
-            </div>
-
-            <button
-              onClick={handleAnalyzeSizing}
-              disabled={!quoteFile || isLoading}
-              className="w-full mt-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded-lg border border-slate-700 transition-colors"
-            >
+          <div className="bg-blue-900 border border-blue-800 p-6 rounded-lg shadow-xl sticky top-8 space-y-4">
+            <h3 className="text-lg font-bold text-cyan-400 uppercase">Upload Quote</h3>
+            <input type="file" accept=".xlsx,.xls" onChange={handleQuoteUpload} className="block w-full text-xs text-blue-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-700 file:text-white hover:file:bg-blue-600 cursor-pointer" />
+            <button onClick={handleAnalyzeSizing} disabled={!quoteFile || isLoading} className="w-full mt-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg border border-blue-700">
               {isLoading ? "Analyzing..." : "Analyze Quote"}
             </button>
           </div>
 
-          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-lg p-6 shadow-xl">
-            <h3 className="text-lg font-bold text-slate-400 uppercase tracking-wider mb-4">
-              Matched Results
-            </h3>
-
+          <div className="lg:col-span-2 bg-blue-900 border border-blue-800 rounded-lg p-6 shadow-xl">
+            <h3 className="text-lg font-bold text-cyan-400 uppercase mb-4">Matches</h3>
             {matches.length === 0 ? (
-              <p className="text-slate-500 text-sm">
-                Please upload a Quote and click Analyze to see the matches.
-              </p>
+              <p className="text-blue-300 text-sm">Upload Quote and Analyze.</p>
             ) : (
-              <div className="overflow-y-auto h-[600px] border border-slate-800 rounded">
+              <div className="overflow-y-auto h-[600px] border border-blue-800 rounded">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-800 text-slate-300 sticky top-0">
-                    <tr>
-                      <th className="p-3">Quote Item</th>
-                      <th className="p-3">Match Type</th>
-                      <th className="p-3">Inventory Item</th>
-                      <th className="p-3">Available</th>
-                      <th className="p-3">Actions</th>
-                    </tr>
+                  <thead className="bg-blue-800 text-white sticky top-0">
+                    <tr><th className="p-3">Quote Item</th><th className="p-3">Type</th><th className="p-3">Inventory</th><th className="p-3">Actions</th></tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-blue-800">
                     {matches.map((match, idx) => (
-                      <tr key={idx} className="hover:bg-slate-800/50">
-                        <td className="p-3 text-slate-300">{match.quoteItem["ITEMS"] || match.quoteItem["Items"] || "N/A"}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-1 text-xs rounded-full ${match.matchType === 'exact' ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300'}`}>
-                            {match.matchType}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-300">{match.inventoryItem["Description"] || "N/A"}</td>
-                        <td className="p-3 text-slate-300">{match.inventoryItem["On hand"] || match.inventoryItem["On hand?"]}</td>
+                      <tr key={idx}>
+                        <td className="p-3">{match.quoteItem["ITEMS"] || "N/A"}</td>
+                        <td className="p-3"><span className={`px-2 py-1 text-xs rounded-full ${match.matchType === 'exact' ? 'bg-blue-600 text-white' : 'bg-cyan-600 text-white'}`}>{match.matchType}</span></td>
+                        <td className="p-3">{match.inventoryItem["Description"] || "N/A"}</td>
                         <td className="p-3 space-x-2">
-                          <button 
-                            onClick={() => handleReserve(match)}
-                            className="bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded text-xs"
-                          >
-                            Reserve
-                          </button>
-                          <button 
-                            onClick={() => handleDecline(match)}
-                            className="bg-red-900 hover:bg-red-800 text-white px-3 py-1 rounded text-xs"
-                          >
-                            Decline
-                          </button>
+                          <button onClick={() => handleReserve(match)} className="bg-green-600 hover:bg-green-500 px-3 py-1 rounded text-xs text-white">Reserve</button>
+                          <button onClick={() => handleDecline(match)} className="bg-red-700 hover:bg-red-600 px-3 py-1 rounded text-xs text-white">Decline</button>
                         </td>
                       </tr>
                     ))}
@@ -145,7 +113,6 @@ export default function QuoteScreening() {
             )}
           </div>
         </div>
-
       </div>
     </main>
   );
