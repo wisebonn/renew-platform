@@ -4,10 +4,9 @@ import { useState } from "react";
 import * as XLSX from "xlsx";
 import { matchQuoteToInventory } from "@/lib/matcher-utils";
 import { useInventory } from "../Providers";
-import { supabase } from "@/lib/supabase";
 
 export default function QuoteScreening() {
-  const { inventory } = useInventory();
+  const { inventory, addReservation } = useInventory();
   const [quoteFile, setQuoteFile] = useState<File | null>(null);
   const [matches, setMatches] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -34,34 +33,17 @@ export default function QuoteScreening() {
     }
   };
 
-  const handleReserve = async (match: any) => {
-    const { data: invItem, error: invError } = await supabase
-      .from('inventory')
-      .upsert({
-        netstock_code: match.inventoryItem["Product code"] || "N/A",
-        description: match.inventoryItem["Description"],
-        category: match.matchType,
-        on_hand: match.inventoryItem["On hand"] || 0
-      })
-      .select()
-      .single();
+  const handleReserve = (match: any) => {
+    addReservation({
+      description: match.inventoryItem["Description"] || match.quoteItem["ITEMS"] || "N/A",
+      status: "reserved",
+      cost: match.inventoryItem["Cost price"] || "N/A",
+      onHand: match.inventoryItem["On hand"] || "N/A",
+      quoteItem: match.quoteItem["ITEMS"] || "N/A",
+    });
 
-    if (invError) return alert("Error saving inventory: " + invError.message);
-
-    const expiry = new Date();
-    expiry.setDate(expiry.getDate() + 30);
-
-    const { error: resError } = await supabase
-      .from('reservations')
-      .insert([{ 
-        inventory_id: invItem.id, 
-        status: 'reserved',
-        expires_at: expiry.toISOString()
-      }]);
-
-    if (resError) return alert("Error reserving: " + resError.message);
-    
     alert("Successfully reserved for 30 days!");
+    // Remove from the visible screening list
     setMatches(matches.filter(m => m !== match));
   };
 

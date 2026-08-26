@@ -13,6 +13,10 @@ export default function InventoryUpload() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
+      // Confirm deletion of old inventory
+      const proceed = confirm("Replace current inventory list? This will delete the old list and upload the new one.");
+      if (!proceed) return;
+
       setIsLoading(true);
       const file = e.target.files[0];
       const data = await file.arrayBuffer();
@@ -25,17 +29,16 @@ export default function InventoryUpload() {
       rows.forEach((r: any) => {
         const description = r["Description"] || ""; 
         const specs = classifyAndExtractSpecs(description);
-        
         if (counts[specs.category as keyof typeof counts] !== undefined) {
           counts[specs.category as keyof typeof counts]++;
         }
       });
 
       setCategoryCounts(counts);
-      setInventory(rows); 
+      setInventory(rows); // Saves to LocalStorage automatically via Providers
 
       setIsLoading(false);
-      alert(`Successfully loaded ${rows.length} inventory items globally!`);
+      alert(`Successfully loaded ${rows.length} inventory items! They are now permanently saved.`);
     }
   };
 
@@ -55,9 +58,11 @@ export default function InventoryUpload() {
             className="block w-full text-xs text-blue-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-700 file:text-white hover:file:bg-blue-600 cursor-pointer"
           />
           {isLoading && <p className="mt-4 text-blue-300">Processing...</p>}
+          <p className="mt-4 text-xs text-blue-300">*Uploading a new file deletes the old file and replaces it with the new one.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* ...Stats Cards... */}
           <div className="bg-blue-900 border border-blue-800 p-6 rounded-lg shadow-xl">
             <h3 className="text-lg font-bold text-cyan-400">Pump Ends</h3>
             <p className="text-4xl font-bold">{categoryCounts.PUMP_END} Models</p>

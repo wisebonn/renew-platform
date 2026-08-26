@@ -1,32 +1,22 @@
 "use client";
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useInventory } from "../Providers";
 
 export default function TestAndRepair() {
-  const [repairs, setRepairs] = useState<any[]>([]);
+  const { reservations, updateReservation } = useInventory();
+  const repairItems = reservations.filter((res: any) => res.status === "in_repair");
 
-  useEffect(() => {
-    const fetchRepairs = async () => {
-      const { data } = await supabase
-        .from('reservations')
-        .select('*, inventory(*)')
-        .eq('status', 'in_repair');
+  const handleAttachment = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-      if (data) setRepairs(data);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      // Store the Base64 string directly in state
+      const base64 = event.target?.result as string;
+      updateReservation(index, { reportAttachment: base64, reportName: file.name });
+      alert(`Attachment "${file.name}" stored successfully!`);
     };
-    fetchRepairs();
-  }, []);
-
-  const attachReport = async (id: string) => {
-    const reportUrl = prompt("Paste report URL or enter notes:");
-    if (reportUrl) {
-      await supabase.from('repairs').insert({ 
-        reservation_id: id, 
-        inventory_id: repairs.find(r => r.id === id)?.inventory_id,
-        report_attachment: reportUrl
-      });
-      alert("Report attached!");
-    }
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -34,15 +24,25 @@ export default function TestAndRepair() {
       <div className="max-w-7xl mx-auto space-y-6">
         <h2 className="text-2xl font-bold text-white">Testing & Repair</h2>
         
-        {repairs.length === 0 ? (
+        {repairItems.length === 0 ? (
           <p className="text-blue-300">No items currently in repair.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {repairs.map((repair) => (
-              <div key={repair.id} className="bg-blue-900 border border-blue-800 p-6 rounded-lg">
-                <h3 className="text-lg font-bold text-blue-100">{repair.inventory?.description}</h3>
+            {repairItems.map((repair, idx) => (
+              <div key={idx} className="bg-blue-900 border border-blue-800 p-6 rounded-lg">
+                <h3 className="text-lg font-bold text-blue-100">{repair.description}</h3>
                 <p className="text-sm text-blue-300 mb-4">Status: {repair.status}</p>
-                <button onClick={() => attachReport(repair.id)} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded">Attach Report</button>
+                
+                {repair.reportName ? (
+                  <p className="text-sm text-green-400 mb-4">📎 {repair.reportName} attached.</p>
+                ) : (
+                  <p className="text-sm text-blue-400 mb-4">No report attached yet.</p>
+                )}
+
+                <label className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded cursor-pointer inline-block">
+                  Attach Report
+                  <input type="file" className="hidden" onChange={(e) => handleAttachment(e, idx)} />
+                </label>
               </div>
             ))}
           </div>

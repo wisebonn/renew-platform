@@ -1,41 +1,29 @@
 "use client";
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useInventory } from "../Providers";
 
 export default function Reservations() {
-  const [reservations, setReservations] = useState<any[]>([]);
+  const { reservations, updateReservation, removeReservation } = useInventory();
 
-  const fetchReservations = async () => {
-    const { data } = await supabase
-      .from('reservations')
-      .select('*, inventory(*)')
-      .order('reserved_at', { ascending: false });
+  const handleDeploy = (index: number) => {
+    const projectName = prompt("Enter the Project Name for deployment:");
+    if (!projectName) return;
 
-    if (data) setReservations(data);
+    const location = prompt("Enter the Location for deployment:");
+    if (!location) return;
+
+    updateReservation(index, { status: 'deployed', projectName, location });
+    alert("Item deployed successfully!");
   };
 
-  useEffect(() => {
-    const checkExpiry = async () => {
-      const now = new Date().toISOString();
-      const { data: expired } = await supabase
-        .from('reservations')
-        .update({ status: 'expired' })
-        .lt('expires_at', now)
-        .eq('status', 'reserved')
-        .select();
+  const handleReturn = (index: number) => {
+    if (confirm("Are you sure you want to return this item? It will be removed from the list.")) {
+      removeReservation(index);
+    }
+  };
 
-      if (expired && expired.length > 0) {
-        console.log("Moved expired reservations back to pool");
-      }
-    };
-
-    checkExpiry();
-    fetchReservations();
-  }, []);
-
-  const updateStatus = async (id: string, status: string) => {
-    await supabase.from('reservations').update({ status }).eq('id', id);
-    fetchReservations();
+  const handleRepair = (index: number) => {
+    updateReservation(index, { status: 'in_repair' });
+    alert("Item sent to Testing & Repair.");
   };
 
   return (
@@ -44,7 +32,7 @@ export default function Reservations() {
         <h2 className="text-2xl font-bold text-white">Reservation Engine</h2>
         
         {reservations.length === 0 ? (
-          <p className="text-blue-300">No active reservations.</p>
+          <p className="text-blue-300">No active reservations. Go to Quote Screening to reserve items.</p>
         ) : (
           <div className="bg-blue-900 border border-blue-800 rounded-lg p-6">
             <table className="w-full text-left text-sm">
@@ -52,28 +40,26 @@ export default function Reservations() {
                 <tr>
                   <th className="p-3">Item</th>
                   <th className="p-3">Status</th>
-                  <th className="p-3">Reserved At</th>
-                  <th className="p-3">Expires At</th>
                   <th className="p-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-blue-800">
-                {reservations.map((res) => (
-                  <tr key={res.id}>
-                    <td className="p-3 text-blue-100">{res.inventory?.description || "N/A"}</td>
+                {reservations.map((res, idx) => (
+                  <tr key={idx}>
+                    <td className="p-3 text-blue-100">{res.description}</td>
                     <td className="p-3">
-                      <span className={`px-2 py-1 text-xs rounded-full ${res.status === 'expired' ? 'bg-red-700 text-white' : res.status === 'in_repair' ? 'bg-cyan-600 text-white' : 'bg-green-600 text-white'}`}>
+                      <span className={`px-2 py-1 text-xs rounded-full ${res.status === 'deployed' ? 'bg-purple-600 text-white' : res.status === 'in_repair' ? 'bg-cyan-600 text-white' : 'bg-green-600 text-white'}`}>
                         {res.status}
                       </span>
                     </td>
-                    <td className="p-3 text-blue-300">{new Date(res.reserved_at).toLocaleDateString()}</td>
-                    <td className="p-3 text-blue-300">
-                      {res.expires_at ? new Date(res.expires_at).toLocaleDateString() : res.expiry_date ? new Date(res.expiry_date).toLocaleDateString() : "N/A"}
-                    </td>
                     <td className="p-3 space-x-2">
-                      <button onClick={() => updateStatus(res.id, 'in_repair')} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">Test & Repair</button>
-                      <button onClick={() => updateStatus(res.id, 'deployed')} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded">Deploy</button>
-                      <button onClick={() => updateStatus(res.id, 'returned')} className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded">Return</button>
+                      {res.status === 'reserved' && (
+                        <>
+                          <button onClick={() => handleRepair(idx)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">Test & Repair</button>
+                          <button onClick={() => handleDeploy(idx)} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded">Deploy</button>
+                          <button onClick={() => handleReturn(idx)} className="bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded">Return</button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
