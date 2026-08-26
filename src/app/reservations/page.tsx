@@ -48,8 +48,9 @@ export default function Reservations() {
                   <th className="p-3">Actions</th>
                 </tr>
               </thead>
+              {/* FIXED: Added : any and : number */}
               <tbody className="divide-y divide-blue-800">
-                {reservations.map((res, idx) => {
+                {reservations.map((res: any, idx: number) => {
                   const daysLeft = getDaysLeft(res.expires_at);
                   return (
                     <tr key={idx}>

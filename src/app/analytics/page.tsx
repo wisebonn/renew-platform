@@ -4,6 +4,7 @@ import { useInventory } from "../Providers";
 
 export default function Analytics() {
   const { reservations, addSavingsEntry } = useInventory();
+  // FIXED: Added : any to filter
   const deployedItems = reservations.filter((r: any) => r.status === "deployed");
 
   const [selectedItem, setSelectedItem] = useState("");
@@ -46,6 +47,7 @@ export default function Analytics() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <div>
                 <label className="block text-sm text-blue-200 mb-1">Deployed Item</label>
+                {/* FIXED: Added : any and : number */}
                 <select value={selectedItem} onChange={(e) => setSelectedItem(e.target.value)} className="w-full bg-blue-800 border border-blue-700 rounded p-2 text-white">
                   <option value="">Select Item...</option>
                   {deployedItems.map((item: any, idx: number) => (

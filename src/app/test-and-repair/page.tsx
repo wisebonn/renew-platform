@@ -3,6 +3,7 @@ import { useInventory } from "../Providers";
 
 export default function TestAndRepair() {
   const { reservations, updateReservation } = useInventory();
+  // FIXED: Added : any to filter
   const repairItems = reservations.filter((res: any) => res.status === "in_repair");
 
   const handleAttachment = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
@@ -11,7 +12,6 @@ export default function TestAndRepair() {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      // Store the Base64 string directly in state
       const base64 = event.target?.result as string;
       updateReservation(index, { reportAttachment: base64, reportName: file.name });
       alert(`Attachment "${file.name}" stored successfully!`);
@@ -28,7 +28,7 @@ export default function TestAndRepair() {
           <p className="text-blue-300">No items currently in repair.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {repairItems.map((repair, idx) => (
+            {repairItems.map((repair: any, idx: number) => (
               <div key={idx} className="bg-blue-900 border border-blue-800 p-6 rounded-lg">
                 <h3 className="text-lg font-bold text-blue-100">{repair.description}</h3>
                 <p className="text-sm text-blue-300 mb-4">Status: {repair.status}</p>
