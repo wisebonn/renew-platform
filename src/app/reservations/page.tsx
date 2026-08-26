@@ -4,8 +4,9 @@ import { useInventory } from "../Providers";
 export default function Reservations() {
   const { reservations, updateReservation, removeReservation } = useInventory();
 
-  const getDaysLeft = (expiresAt: string) => {
-    if (!expiresAt) return "N/A";
+  // Always returns a number (0) to prevent Vercel type errors
+  const getDaysLeft = (expiresAt: string): number => {
+    if (!expiresAt) return 0;
     const diffTime = new Date(expiresAt).getTime() - new Date().getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays > 0 ? diffDays : 0;
@@ -48,7 +49,6 @@ export default function Reservations() {
                   <th className="p-3">Actions</th>
                 </tr>
               </thead>
-              {/* FIXED: Added : any and : number */}
               <tbody className="divide-y divide-blue-800">
                 {reservations.map((res: any, idx: number) => {
                   const daysLeft = getDaysLeft(res.expires_at);
