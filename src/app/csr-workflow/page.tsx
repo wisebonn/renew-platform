@@ -25,7 +25,7 @@ export default function CsrWorkflow() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-blue-800">
-                {deployedItems.map((item, idx) => (
+                {deployedItems.map((item: any, idx: number) => (
                   <tr key={idx}>
                     <td className="p-3 text-blue-100">{item.description}</td>
                     <td className="p-3 text-blue-100">{item.project_name || item.projectName || "N/A"}</td>
