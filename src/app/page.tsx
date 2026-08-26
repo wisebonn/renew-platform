@@ -8,6 +8,10 @@ export default function Dashboard() {
   const totalSavings = savingsData.reduce((acc: number, curr: any) => acc + curr.savings, 0);
   const maxSaving = Math.max(...savingsData.map((d: any) => Math.abs(d.savings)), 1);
 
+  // FIX 1: Only count active reservations (not deployed) for the Reservations card
+  const activeReservations = reservations.filter((r: any) => r.status === 'reserved' || r.status === 'in_repair').length;
+  const deployedCount = reservations.filter((r: any) => r.status === 'deployed').length;
+
   return (
     <main className="w-full text-white">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -19,8 +23,8 @@ export default function Dashboard() {
             <p className="text-4xl font-bold">{inventory.length}</p>
           </div>
           <div className="bg-blue-900 border border-blue-800 p-6 rounded-lg shadow-xl">
-            <h3 className="text-lg font-bold text-cyan-400">Reservations</h3>
-            <p className="text-4xl font-bold">{reservations.length}</p>
+            <h3 className="text-lg font-bold text-cyan-400">Active Reservations</h3>
+            <p className="text-4xl font-bold">{activeReservations}</p>
           </div>
           <div className="bg-blue-900 border border-blue-800 p-6 rounded-lg shadow-xl">
             <h3 className="text-lg font-bold text-cyan-400">Total Savings</h3>
@@ -30,7 +34,7 @@ export default function Dashboard() {
           </div>
           <div className="bg-blue-900 border border-blue-800 p-6 rounded-lg shadow-xl">
             <h3 className="text-lg font-bold text-cyan-400">Deployed</h3>
-            <p className="text-4xl font-bold">{reservations.filter((r: any) => r.status === 'deployed').length}</p>
+            <p className="text-4xl font-bold">{deployedCount}</p>
           </div>
         </div>
 
@@ -53,14 +57,16 @@ export default function Dashboard() {
             <p className="text-blue-300">No savings data yet. Go to Analytics to add your first cost comparison.</p>
           ) : (
             <div className="space-y-4">
-              {/* Added : any and : number below */}
               {savingsData.map((entry: any, idx: number) => {
                  const isPositive = entry.savings >= 0;
                  const width = (Math.abs(entry.savings) / maxSaving) * 100;
+                 // FIX 2: Read the item name correctly
+                 const itemName = entry.item_name || entry.itemName || "Unknown Item";
+                 
                  return (
                    <div key={idx} className="flex items-center gap-4">
-                     <div className="w-48 text-right text-sm text-blue-300 truncate" title={entry.itemName}>
-                       {entry.itemName}
+                     <div className="w-48 text-right text-sm text-blue-300 truncate" title={itemName}>
+                       {itemName}
                      </div>
                      <div className="flex-1 bg-blue-800 rounded-full h-6 relative overflow-hidden">
                        <div
@@ -73,7 +79,7 @@ export default function Dashboard() {
                      </div>
                      <button 
                        onClick={() => {
-                         if(confirm(`Delete savings entry for ${entry.itemName}?`)) removeSavingsEntry(idx);
+                         if(confirm(`Delete savings entry for ${itemName}?`)) removeSavingsEntry(idx);
                        }}
                        className="text-red-400 hover:text-red-300 p-1"
                        title="Delete this entry"
