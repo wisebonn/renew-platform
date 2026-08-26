@@ -53,7 +53,8 @@ export default function Dashboard() {
             <p className="text-blue-300">No savings data yet. Go to Analytics to add your first cost comparison.</p>
           ) : (
             <div className="space-y-4">
-              {savingsData.map((entry, idx) => {
+              {/* Added : any and : number below */}
+              {savingsData.map((entry: any, idx: number) => {
                  const isPositive = entry.savings >= 0;
                  const width = (Math.abs(entry.savings) / maxSaving) * 100;
                  return (
