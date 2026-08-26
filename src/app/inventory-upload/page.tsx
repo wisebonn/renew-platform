@@ -5,7 +5,7 @@ import { classifyAndExtractSpecs } from "@/lib/matcher-utils";
 import { useInventory } from "../Providers";
 
 export default function InventoryUpload() {
-  const { setInventory } = useInventory(); 
+  const { replaceInventory } = useInventory(); // Changed to cloud upload
   const [categoryCounts, setCategoryCounts] = useState({
     PUMP_END: 0, MOTOR: 0, PUMP_CW_MOTO: 0, INVERTER: 0, SOLAR_MODULE: 0, PIPE: 0, CABLE: 0
   });
@@ -13,8 +13,7 @@ export default function InventoryUpload() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      // Confirm deletion of old inventory
-      const proceed = confirm("Replace current inventory list? This will delete the old list and upload the new one.");
+      const proceed = confirm("Uploading a new file will DELETE the current cloud inventory and REPLACE it with this one. Continue?");
       if (!proceed) return;
 
       setIsLoading(true);
@@ -35,10 +34,10 @@ export default function InventoryUpload() {
       });
 
       setCategoryCounts(counts);
-      setInventory(rows); // Saves to LocalStorage automatically via Providers
+      await replaceInventory(rows); // Sends the full Excel list to the cloud!
 
       setIsLoading(false);
-      alert(`Successfully loaded ${rows.length} inventory items! They are now permanently saved.`);
+      alert(`Successfully uploaded ${rows.length} items to the cloud!`);
     }
   };
 
@@ -57,12 +56,11 @@ export default function InventoryUpload() {
             onChange={handleFileUpload}
             className="block w-full text-xs text-blue-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-700 file:text-white hover:file:bg-blue-600 cursor-pointer"
           />
-          {isLoading && <p className="mt-4 text-blue-300">Processing...</p>}
-          <p className="mt-4 text-xs text-blue-300">*Uploading a new file deletes the old file and replaces it with the new one.</p>
+          {isLoading && <p className="mt-4 text-blue-300">Uploading to cloud...</p>}
+          <p className="mt-4 text-xs text-blue-300">*Uploading a new file replaces the old cloud inventory.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* ...Stats Cards... */}
           <div className="bg-blue-900 border border-blue-800 p-6 rounded-lg shadow-xl">
             <h3 className="text-lg font-bold text-cyan-400">Pump Ends</h3>
             <p className="text-4xl font-bold">{categoryCounts.PUMP_END} Models</p>

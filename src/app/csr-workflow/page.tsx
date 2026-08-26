@@ -9,10 +9,9 @@ export default function CsrWorkflow() {
     <main className="w-full text-white">
       <div className="max-w-7xl mx-auto space-y-6">
         <h2 className="text-2xl font-bold text-white">CSR Workflow</h2>
-        
         {deployedItems.length === 0 ? (
           <div className="bg-blue-900 border border-blue-800 p-6 rounded-lg">
-            <p className="text-blue-300">No items have been deployed yet.</p>
+            <p className="text-blue-300">No items have been deployed yet. Please go to the Reservation Engine and click "Deploy".</p>
           </div>
         ) : (
           <div className="bg-blue-900 border border-blue-800 rounded-lg p-6">
@@ -29,11 +28,9 @@ export default function CsrWorkflow() {
                 {deployedItems.map((item, idx) => (
                   <tr key={idx}>
                     <td className="p-3 text-blue-100">{item.description}</td>
-                    <td className="p-3 text-blue-100">{item.projectName || "N/A"}</td>
+                    <td className="p-3 text-blue-100">{item.project_name || item.projectName || "N/A"}</td>
                     <td className="p-3 text-blue-100">{item.location || "N/A"}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-1 text-xs rounded-full bg-purple-600 text-white">deployed</span>
-                    </td>
+                    <td className="p-3"><span className="px-2 py-1 text-xs rounded-full bg-purple-600 text-white">deployed</span></td>
                   </tr>
                 ))}
               </tbody>

@@ -14,18 +14,15 @@ export default function Reservations() {
   const handleDeploy = (index: number) => {
     const projectName = prompt("Enter the Project Name for deployment:");
     if (!projectName) return;
-
     const location = prompt("Enter the Location for deployment:");
     if (!location) return;
 
-    updateReservation(index, { status: 'deployed', projectName, location });
-    alert("Item deployed successfully! Check CSR Workflow.");
+    updateReservation(index, { status: 'deployed', project_name: projectName, location: location });
+    alert("Item deployed successfully!");
   };
 
   const handleReturn = (index: number) => {
-    if (confirm("Are you sure you want to return this item? It will be removed from the list.")) {
-      removeReservation(index);
-    }
+    if (confirm("Are you sure you want to return this item?")) removeReservation(index);
   };
 
   const handleRepair = (index: number) => {
@@ -37,9 +34,8 @@ export default function Reservations() {
     <main className="w-full text-white">
       <div className="max-w-7xl mx-auto space-y-6">
         <h2 className="text-2xl font-bold text-white">Reservation Engine</h2>
-        
         {reservations.length === 0 ? (
-          <p className="text-blue-300">No active reservations. Go to Quote Screening to reserve items.</p>
+          <p className="text-blue-300">No active reservations.</p>
         ) : (
           <div className="bg-blue-900 border border-blue-800 rounded-lg p-6">
             <table className="w-full text-left text-sm">
@@ -54,41 +50,23 @@ export default function Reservations() {
               </thead>
               <tbody className="divide-y divide-blue-800">
                 {reservations.map((res, idx) => {
-                  const daysLeft = getDaysLeft(res.expiresAt);
-                  
+                  const daysLeft = getDaysLeft(res.expires_at);
                   return (
                     <tr key={idx}>
                       <td className="p-3 text-blue-100">{res.description}</td>
-                      <td className="p-3 text-blue-300">
-                        {res.reservedAt ? new Date(res.reservedAt).toLocaleDateString() : "N/A"}
-                      </td>
-                      <td className="p-3">
-                        <span className={`font-bold ${daysLeft <= 7 ? 'text-red-400' : 'text-green-400'}`}>
-                          {daysLeft} days
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className={`px-2 py-1 text-xs rounded-full ${res.status === 'deployed' ? 'bg-purple-600 text-white' : res.status === 'in_repair' ? 'bg-cyan-600 text-white' : 'bg-green-600 text-white'}`}>
-                          {res.status}
-                        </span>
-                      </td>
+                      <td className="p-3 text-blue-300">{res.reserved_at ? new Date(res.reserved_at).toLocaleDateString() : "N/A"}</td>
+                      <td className="p-3"><span className={`font-bold ${daysLeft <= 7 ? 'text-red-400' : 'text-green-400'}`}>{daysLeft} days</span></td>
+                      <td className="p-3"><span className={`px-2 py-1 text-xs rounded-full ${res.status === 'deployed' ? 'bg-purple-600' : res.status === 'in_repair' ? 'bg-cyan-600' : 'bg-green-600'} text-white`}>{res.status}</span></td>
                       <td className="p-3 space-x-2">
-                        {/* Item can be sent to test & repair from reserved */}
-                        {res.status === 'reserved' && (
-                          <button onClick={() => handleRepair(idx)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">Test & Repair</button>
-                        )}
-                        
-                        {/* Deploy is available for Reserved AND In Repair */}
                         {(res.status === 'reserved' || res.status === 'in_repair') && (
-                          <button onClick={() => handleDeploy(idx)} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded">Deploy</button>
+                          <>
+                            <button onClick={() => handleRepair(idx)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">Test & Repair</button>
+                            <button onClick={() => handleDeploy(idx)} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded">Deploy</button>
+                          </>
                         )}
-
-                        {/* Return is available for Reserved, In Repair, AND Deployed */}
                         {(res.status === 'reserved' || res.status === 'in_repair' || res.status === 'deployed') && (
                           <button onClick={() => handleReturn(idx)} className="bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded">Return</button>
                         )}
-
-                        {/* Only Deployed or Returned removes the item; so Deployed has no Test&Repair */}
                       </td>
                     </tr>
                   );
