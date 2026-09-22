@@ -26,20 +26,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
       ]);
 
       if (invRes.data) setInventory(invRes.data);
-      if (resRes.data) {
-        // Auto-backfill missing dates for old items
-        const fixedReservations = resRes.data.map((res: any) => {
-          if (!res.reserved_at || !res.expires_at) {
-            const reservedAt = new Date().toISOString();
-            const expiresAt = new Date();
-            expiresAt.setDate(expiresAt.getDate() + 30);
-            return { ...res, reserved_at: reservedAt, expires_at: expiresAt.toISOString() };
-          }
-          return res;
-        });
-        supabase.from('reservations').upsert(fixedReservations).then(() => {});
-        setReservations(fixedReservations);
-      }
+      if (resRes.data) setReservations(resRes.data);
       if (savRes.data) setSavingsData(savRes.data);
       setIsLoading(false);
     };
@@ -67,7 +54,6 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     if (error) alert("Error saving reservation: " + error.message);
   };
 
-  // Updated to use project_name and location
   const updateReservation = (index: number, updates: any) => {
     const itemToUpdate = reservations[index];
     setReservations((prev) => prev.map((item, i) => i === index ? { ...item, ...updates } : item));
@@ -109,12 +95,8 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
       "Selling price": item["Selling price"] || 0,
     }));
     const { error } = await supabase.from('inventory').insert(cleanedItems);
-    if (error) {
-      alert("Error uploading inventory: " + error.message);
-    } else {
-      setInventory(cleanedItems);
-      alert(`Successfully uploaded ${cleanedItems.length} items!`);
-    }
+    if (error) alert("Error uploading inventory: " + error.message);
+    else { setInventory(cleanedItems); alert(`Successfully uploaded ${cleanedItems.length} items!`); }
   };
 
   return (
