@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "ReNew Platform",
-  description: "Inventory and Quote Screening",
+  description: "Shop Soiled Inventory Management",
 };
 
 export default function RootLayout({
@@ -18,11 +18,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={`${inter.className} bg-gray-50 text-gray-900`}>
         <InventoryProvider>
-          <div className="flex min-h-screen bg-blue-950">
+          <div className="flex min-h-screen bg-gray-50">
             <Sidebar />
-            <main className="flex-1 ml-64 p-8 overflow-y-auto">
+            <main className="flex-1 ml-64 p-8">
               {children}
             </main>
           </div>
