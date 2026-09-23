@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, UploadCloud, FileSearch, CalendarClock, Wrench, Users, BarChart3, Activity } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { LayoutDashboard, UploadCloud, FileSearch, CalendarClock, Wrench, Users, BarChart3, Activity, LogOut } from "lucide-react";
 
 const menuItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -17,6 +17,14 @@ const menuItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    if (!confirm("Log out of ReNew Platform?")) return;
+    document.cookie = "renew_auth=; path=/; max-age=0";
+    router.push("/login");
+    router.refresh();
+  };
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 h-screen flex flex-col fixed left-0 top-0 z-50">
@@ -40,7 +48,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-gray-200">
+      <div className="p-4 border-t border-gray-200 space-y-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
             <span className="text-blue-600 font-bold">N</span>
@@ -50,6 +58,13 @@ export default function Sidebar() {
             <p className="text-xs text-gray-500">CSR Coordinator</p>
           </div>
         </div>
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-700 font-semibold py-2 rounded-lg text-sm transition-colors"
+        >
+          <LogOut size={16} />
+          Logout
+        </button>
       </div>
     </aside>
   );
