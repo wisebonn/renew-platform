@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { InventoryProvider } from "./Providers";
 import Sidebar from "@/components/Sidebar";
+import AIAssistant from "@/components/AIAssistant";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -26,6 +27,7 @@ export default function RootLayout({
               {children}
             </main>
           </div>
+          <AIAssistant />
         </InventoryProvider>
       </body>
     </html>

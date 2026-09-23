@@ -1,101 +1,104 @@
 "use client";
 import { useInventory } from "./Providers";
-import { Trash2 } from "lucide-react";
 
 export default function Dashboard() {
-  const { inventory, reservations, savingsData, removeSavingsEntry, clearSavings } = useInventory();
+  const { inventory, reservations, savingsData } = useInventory();
 
-  const totalSavings = savingsData.reduce((acc: number, curr: any) => acc + curr.savings, 0);
-  const maxSaving = Math.max(...savingsData.map((d: any) => Math.abs(d.savings)), 1);
+  const totalOnHand = inventory.reduce((sum: number, i: any) => sum + (parseInt(i.on_hand) || 0), 0);
+  const uniqueSKUs = inventory.length;
 
-  const activeReservations = reservations.filter((r: any) => r.status === 'reserved' || r.status === 'in_repair' || r.status === 'assessed').length;
-  const deployedCount = reservations.filter((r: any) => r.status === 'deployed').length;
+  // Only count savings tied to items currently DEPLOYED
+  const deployedIds = new Set(
+    reservations.filter((r: any) => r.status === "deployed").map((r: any) => r.id)
+  );
+  const deployedSavings = savingsData.filter((s: any) => s.item_id && deployedIds.has(s.item_id));
+  const totalSavings = deployedSavings.reduce((acc: number, curr: any) => acc + (parseFloat(curr.savings) || 0), 0);
+
+  const activeReservations = reservations.filter((r: any) =>
+    r.status === "reserved" || r.status === "in_repair" || r.status === "assessed"
+  ).length;
+  const deployedCount = reservations.filter((r: any) => r.status === "deployed").length;
+
+  const gradeCounts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } as any;
+  inventory.forEach((i: any) => { if (i.commercial_grade) gradeCounts[i.commercial_grade]++; });
+
+  const seasonCounts: any = {};
+  reservations.forEach((r: any) => {
+    if (r.season) seasonCounts[r.season] = (seasonCounts[r.season] || 0) + 1;
+  });
+  const peakSeasonRaw = Object.entries(seasonCounts).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || "N/A";
+  const seasonDisplay = (s: string) => {
+    if (s === "Long Rains") return "Mar - May";
+    if (s === "Short Rains") return "Oct - Dec";
+    if (s === "Dry") return "Jan - Feb, Jun - Sep";
+    return s;
+  };
 
   return (
     <main className="w-full">
       <div className="max-w-7xl mx-auto space-y-6">
-        <h2 className="text-3xl font-bold text-gray-900">Dashboard Overview</h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <h2 className="text-2xl font-bold text-gray-900">Dashboard Overview</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Total Inventory</h3>
-            <p className="text-4xl font-bold text-gray-900 mt-2">{inventory.length}</p>
+            <h3 className="text-sm font-bold text-gray-500 uppercase">Total Units On Hand</h3>
+            <p className="text-3xl font-bold text-gray-900">{totalOnHand.toLocaleString()}</p>
+            <p className="text-xs text-gray-400 mt-1">{uniqueSKUs} unique SKUs</p>
           </div>
           <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Active Reservations</h3>
-            <p className="text-4xl font-bold text-gray-900 mt-2">{activeReservations}</p>
+            <h3 className="text-sm font-bold text-gray-500 uppercase">Active Reservations</h3>
+            <p className="text-3xl font-bold text-gray-900">{activeReservations}</p>
           </div>
           <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Total Savings</h3>
-            <p className={`text-4xl font-bold mt-2 ${totalSavings >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {totalSavings >= 0 ? '$' : '-$'}{Math.abs(totalSavings).toLocaleString()}
+            <h3 className="text-sm font-bold text-gray-500 uppercase">Deployed</h3>
+            <p className="text-3xl font-bold text-gray-900">{deployedCount}</p>
+          </div>
+          <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
+            <h3 className="text-sm font-bold text-gray-500 uppercase">Deployed Savings</h3>
+            <p className={`text-3xl font-bold ${totalSavings >= 0 ? "text-green-600" : "text-red-600"}`}>
+              KES {totalSavings.toLocaleString()}
             </p>
-          </div>
-          <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Deployed</h3>
-            <p className="text-4xl font-bold text-gray-900 mt-2">{deployedCount}</p>
+            <p className="text-xs text-gray-400 mt-1">{deployedSavings.length} deployed items tracked</p>
           </div>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold text-gray-900">Savings Breakdown by Item</h3>
-            {savingsData.length > 0 && (
-              <button 
-                onClick={() => {
-                  if(confirm("Are you sure you want to clear ALL savings data?")) clearSavings();
-                }}
-                className="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-              >
-                Clear All Data
-              </button>
-            )}
-          </div>
-
-          {savingsData.length === 0 ? (
-            <p className="text-gray-500 text-sm">No savings data yet. Go to Analytics to add your first cost comparison.</p>
-          ) : (
-            <div className="space-y-4">
-              {savingsData.map((entry: any, idx: number) => {
-                 const isPositive = entry.savings >= 0;
-                 const width = (Math.abs(entry.savings) / maxSaving) * 100;
-                 const itemName = entry.item_name || entry.itemName || "Unknown Item";
-                 
-                 return (
-                   <div key={idx} className="flex items-center gap-4">
-                     <div className="w-48 text-right text-sm font-medium text-gray-700 truncate" title={itemName}>
-                       {itemName}
-                     </div>
-                     <div className="flex-1 bg-gray-100 rounded-full h-4 relative overflow-hidden">
-                       <div
-                         className={`h-full rounded-full transition-all duration-500 ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
-                         style={{ width: `${width}%` }}
-                       ></div>
-                     </div>
-                     <div className={`w-32 text-sm font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                       {isPositive ? '$' : '-$'}{Math.abs(entry.savings).toLocaleString()}
-                     </div>
-                     <button 
-                       onClick={() => {
-                         if(confirm(`Delete savings entry for ${itemName}?`)) removeSavingsEntry(idx);
-                       }}
-                       className="text-gray-400 hover:text-red-500 p-1 transition-colors"
-                       title="Delete this entry"
-                     >
-                       <Trash2 size={16} />
-                     </button>
-                   </div>
-                 );
-              })}
+        <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
+          <h3 className="text-lg font-bold text-blue-600 mb-4">Key Insights</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg">
+              <p className="text-xs font-semibold text-gray-500 uppercase">Peak Workshop Season</p>
+              <p className="text-lg font-bold text-gray-900">{seasonDisplay(peakSeasonRaw as string)}</p>
+              <p className="text-xs text-gray-500 mt-1">{peakSeasonRaw as string}</p>
             </div>
-          )}
+            <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg">
+              <p className="text-xs font-semibold text-gray-500 uppercase">Total Reservations Ever</p>
+              <p className="text-lg font-bold text-gray-900">{reservations.length}</p>
+            </div>
+            <div className="bg-gray-50 border border-gray-200 p-4 rounded-lg">
+              <p className="text-xs font-semibold text-gray-500 uppercase">Deployed Savings Items</p>
+              <p className="text-lg font-bold text-gray-900">{deployedSavings.length}</p>
+            </div>
+          </div>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Quick Links</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <a href="/inventory-upload" className="bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-lg text-center font-semibold transition-colors">Upload Inventory</a>
-            <a href="/quote-screening" className="bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-lg text-center font-semibold transition-colors">Screen Quotes</a>
+        <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
+          <h3 className="text-lg font-bold text-blue-600 mb-4">Inventory by Commercial Grade</h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="bg-green-50 border border-green-200 p-4 rounded-lg text-center"><p className="text-xs text-green-700 font-semibold">N5 Prime</p><p className="text-2xl font-bold text-green-800">{gradeCounts[5]}</p></div>
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg text-center"><p className="text-xs text-blue-700 font-semibold">N4 Good</p><p className="text-2xl font-bold text-blue-800">{gradeCounts[4]}</p></div>
+            <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg text-center"><p className="text-xs text-yellow-700 font-semibold">N3 Fair</p><p className="text-2xl font-bold text-yellow-800">{gradeCounts[3]}</p></div>
+            <div className="bg-orange-50 border border-orange-200 p-4 rounded-lg text-center"><p className="text-xs text-orange-700 font-semibold">N2 Poor</p><p className="text-2xl font-bold text-orange-800">{gradeCounts[2]}</p></div>
+            <div className="bg-red-50 border border-red-200 p-4 rounded-lg text-center"><p className="text-xs text-red-700 font-semibold">N1 Dead</p><p className="text-2xl font-bold text-red-800">{gradeCounts[1]}</p></div>
+          </div>
+        </div>
+
+        <div className="bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
+          <h3 className="text-lg font-bold text-blue-600 mb-4">Quick Links</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <a href="/inventory-upload" className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg text-center font-semibold text-sm">Upload Inventory</a>
+            <a href="/quote-screening" className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg text-center font-semibold text-sm">Screen Quotes</a>
+            <a href="/reservations" className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg text-center font-semibold text-sm">Reservations</a>
+            <a href="/analytics" className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg text-center font-semibold text-sm">Analytics</a>
           </div>
         </div>
       </div>

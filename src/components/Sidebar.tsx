@@ -12,7 +12,7 @@ const menuItems = [
   { name: "Testing & Repair", href: "/test-and-repair", icon: Wrench },
   { name: "CSR Workflow", href: "/csr-workflow", icon: Users },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
-  { name: "Activity Log", href: "/activity-log", icon: Activity },
+  { name: "Workshop Log", href: "/workshop-log", icon: Activity },
 ];
 
 export default function Sidebar() {
@@ -31,11 +31,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                isActive
-                  ? "bg-blue-50 text-blue-700 font-semibold"
-                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-              }`}
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? "bg-blue-50 text-blue-700 font-semibold" : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"}`}
             >
               <item.icon size={20} />
               <span>{item.name}</span>
