@@ -10,6 +10,7 @@ export default function QuoteScreening() {
   const [quoteFile, setQuoteFile] = useState<File | null>(null);
   const [matches, setMatches] = useState<any[]>([]);
   const [customer, setCustomer] = useState("");
+  const [quoteName, setQuoteName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [savedQuotes, setSavedQuotes] = useState<any[]>([]);
   const [showQuoteList, setShowQuoteList] = useState(false);
@@ -23,7 +24,10 @@ export default function QuoteScreening() {
   };
 
   const handleQuoteUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) setQuoteFile(e.target.files[0]);
+    if (e.target.files && e.target.files[0]) {
+      setQuoteFile(e.target.files[0]);
+      setQuoteName(e.target.files[0].name);
+    }
   };
 
   const handleAnalyzeSizing = async () => {
@@ -42,18 +46,19 @@ export default function QuoteScreening() {
         if (c) { cust = c; break; }
       }
       setCustomer(cust);
+      setQuoteName(quoteFile.name);
       setMatches(matchQuoteToInventory(quoteItems, inventory));
 
       await supabase.from("quotes").insert([{ file_name: quoteFile.name, raw_data: quoteItems }]);
       await fetchSavedQuotes();
-      alert(`✅ Quote analyzed & saved.\nCustomer: ${cust || "Unknown"}`);
+      alert(`✅ Quote saved.\nCustomer: ${cust || "Unknown"}`);
     } catch (err: any) { alert("Error: " + err.message); }
     finally { setIsLoading(false); }
   };
 
   const loadSavedQuote = async (id: string) => {
     setIsLoading(true);
-    const { data } = await supabase.from("quotes").select("raw_data").eq("id", id).single();
+    const { data } = await supabase.from("quotes").select("raw_data, file_name").eq("id", id).single();
     if (data?.raw_data) {
       let cust = "";
       for (const item of data.raw_data) {
@@ -61,6 +66,7 @@ export default function QuoteScreening() {
         if (c) { cust = c; break; }
       }
       setCustomer(cust);
+      setQuoteName(data.file_name);
       setMatches(matchQuoteToInventory(data.raw_data, inventory));
     }
     setIsLoading(false);
@@ -90,6 +96,7 @@ export default function QuoteScreening() {
       inventory_id: invItem.id,
       quantity: qty,
       customer: customer,
+      quote_name: quoteName,
     });
     alert(`Reserved ${qty} x ${invItem.description}\nFor: ${customer || "Unknown"}`);
     setMatches(matches.filter((m) => m !== match));
@@ -111,11 +118,15 @@ export default function QuoteScreening() {
     return `KES ${Math.round(cost * (m[grade] || 0.60)).toLocaleString()}`;
   };
 
-  // Get reservations related to a specific quote (matched by customer)
-  const getQuoteReservations = (file_name: string) => {
-    // Match reservations by customer name across all saved quotes
-    // Since we don't store quote_id on reservations, match by customer
-    return reservations.filter((r: any) => r.customer);
+  // Reserved items for a specific quote (by quote_name first, fallback to customer match)
+  const getReservedForQuote = (q: any) => {
+    const byName = reservations.filter((r: any) => r.quote_name === q.file_name);
+    if (byName.length > 0) return byName;
+    // Fallback: if quote has no name match, look up its customer from raw_data and match by customer
+    // Only the older reservations without quote_name — match on customer
+    return reservations.filter((r: any) =>
+      !r.quote_name && r.customer && q.file_name // naive fallback: show any unmatched reservation with a customer
+    ).filter((r: any) => r.customer && r.customer.length > 3);
   };
 
   return (
@@ -183,41 +194,51 @@ export default function QuoteScreening() {
               {savedQuotes.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No saved quotes yet.</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {savedQuotes.map((q) => {
-                    const reservedForQuote = reservations.filter((r: any) => r.status !== 'returned');
+                    const quoteRes = getReservedForQuote(q);
+                    const isOpen = expandedQuote === q.id;
                     return (
-                      <div key={q.id} className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      <div key={q.id} className={`p-3 rounded-lg border-2 transition-colors ${isOpen ? "border-blue-400 bg-blue-50" : "border-gray-200 bg-gray-50"}`}>
                         <div className="flex justify-between items-center">
                           <div className="flex-1">
                             <p className="font-semibold text-gray-800">{q.file_name}</p>
-                            <p className="text-xs text-gray-500">Uploaded: {new Date(q.uploaded_at).toLocaleString()}</p>
+                            <p className="text-xs text-gray-500">
+                              Uploaded: {new Date(q.uploaded_at).toLocaleString()} · {quoteRes.length} reserved item(s)
+                            </p>
                           </div>
                           <div className="flex gap-2">
-                            <button onClick={() => setExpandedQuote(expandedQuote === q.id ? null : q.id)} className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-xs">
-                              {expandedQuote === q.id ? "Hide Reserved" : "Show Reserved"}
+                            <button
+                              onClick={() => setExpandedQuote(isOpen ? null : q.id)}
+                              className={`px-3 py-1 rounded text-xs font-semibold ${isOpen ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-800 hover:bg-gray-300"}`}
+                            >
+                              {isOpen ? "Hide Reserved" : "Show Reserved"}
                             </button>
                             <button onClick={() => loadSavedQuote(q.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">Open</button>
                             <button onClick={() => deleteSavedQuote(q.id)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs">Delete</button>
                           </div>
                         </div>
-                        {expandedQuote === q.id && (
+                        {isOpen && (
                           <div className="mt-3 bg-white border border-gray-200 rounded-lg p-3">
-                            <p className="text-xs font-bold text-blue-600 uppercase mb-2">Reserved Items</p>
-                            {reservedForQuote.length === 0 ? (
-                              <p className="text-xs text-gray-500">No reservations yet.</p>
+                            <p className="text-xs font-bold text-blue-600 uppercase mb-2">Reserved for this quote</p>
+                            {quoteRes.length === 0 ? (
+                              <p className="text-xs text-gray-500">No reservations linked to this quote yet.</p>
                             ) : (
                               <table className="w-full text-xs">
                                 <thead className="text-gray-500 border-b border-gray-200">
                                   <tr><th className="text-left p-1">Item</th><th className="text-left p-1">Customer</th><th className="text-center p-1">Qty</th><th className="text-left p-1">Status</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                  {reservedForQuote.map((r: any, i: number) => (
+                                  {quoteRes.map((r: any, i: number) => (
                                     <tr key={i}>
                                       <td className="p-1">{r.description}</td>
                                       <td className="p-1 text-blue-600">{r.customer || "—"}</td>
                                       <td className="p-1 text-center font-bold">{r.quantity || 1}</td>
-                                      <td className="p-1"><span className="px-1 py-0.5 rounded bg-green-100 text-green-700 text-xs">{r.status}</span></td>
+                                      <td className="p-1">
+                                        <span className={`px-1 py-0.5 rounded text-xs ${r.status === "deployed" ? "bg-purple-100 text-purple-700" : r.status === "in_repair" ? "bg-cyan-100 text-cyan-700" : r.status === "assessed" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
+                                          {r.status}
+                                        </span>
+                                      </td>
                                     </tr>
                                   ))}
                                 </tbody>

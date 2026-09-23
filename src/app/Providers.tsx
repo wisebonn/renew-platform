@@ -5,13 +5,14 @@ import { supabase } from "@/lib/supabase";
 const AppContext = createContext<any>({
   inventory: [], setInventory: () => {},
   reservations: [], addReservation: () => {}, updateReservation: () => {}, removeReservation: () => {},
-  savingsData: [], addSavingsEntry: () => {}, removeSavingsEntry: () => {}, clearSavings: () => {},
+  savingsData: [], addSavingsEntry: () => {}, upsertSavingsEntry: () => {}, replaceSavingsEntry: () => {}, removeSavingsEntry: () => {}, clearSavings: () => {},
   replaceInventory: () => {}, refreshAll: () => {},
   getAvailableQuantity: () => 0,
 });
 
 export const useInventory = () => useContext(AppContext);
 
+// ---------- SAFE HELPERS ----------
 async function safeInsert(table: string, payload: any, retries = 15) {
   let current = { ...payload };
   for (let i = 0; i < retries; i++) {
@@ -51,6 +52,7 @@ async function safeUpdate(table: string, id: string, updates: any, retries = 15)
   return { data: null, error: new Error("Max retries exceeded") };
 }
 
+// ---------- PROVIDER ----------
 export function InventoryProvider({ children }: { children: ReactNode }) {
   const [inventory, setInventory] = useState<any[]>([]);
   const [reservations, setReservations] = useState<any[]>([]);
@@ -84,6 +86,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
       commercial_grade: item.commercial_grade || null,
       commercial_label: item.commercial_label || null,
       cost_price: item.cost_price || 0,
+      selling_price: item.selling_price || 0,
       inventory_id: item.inventory_id || null,
       quantity: item.quantity || 1,
       customer: item.customer || null,
@@ -114,6 +117,40 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const { data, error } = await safeInsert('savings', entry);
     if (data) setSavingsData((prev) => [...prev, data]);
     if (error) alert("Error saving savings: " + error.message);
+  };
+
+  const upsertSavingsEntry = async (entry: any) => {
+    const existing = savingsData.find((s: any) => s.item_id && entry.item_id && s.item_id === entry.item_id);
+    if (existing) {
+      const { data, error } = await supabase.from('savings').update({
+        new_cost: entry.new_cost,
+        old_cost: entry.old_cost,
+        quantity: entry.quantity,
+        savings: entry.savings,
+        date_created: entry.date_created,
+      }).eq('id', existing.id).select().single();
+      if (error) { alert("Error updating savings: " + error.message); return false; }
+      if (data) setSavingsData((prev) => prev.map((s) => s.id === existing.id ? data : s));
+      return true;
+    } else {
+      const { data, error } = await safeInsert('savings', entry);
+      if (error) { alert("Error saving savings: " + error.message); return false; }
+      if (data) setSavingsData((prev) => [...prev, data]);
+      return true;
+    }
+  };
+
+  // Delete existing entry for the same item, then insert fresh
+  const replaceSavingsEntry = async (entry: any) => {
+    const existing = savingsData.find((s: any) => s.item_id && entry.item_id && s.item_id === entry.item_id);
+    if (existing) {
+      await supabase.from('savings').delete().eq('id', existing.id);
+      setSavingsData((prev) => prev.filter((s) => s.id !== existing.id));
+    }
+    const { data, error } = await safeInsert('savings', entry);
+    if (error) { alert("Error saving savings: " + error.message); return false; }
+    if (data) setSavingsData((prev) => [...prev, data]);
+    return true;
   };
 
   const removeSavingsEntry = async (index: number) => {
@@ -150,7 +187,12 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AppContext.Provider value={{ inventory, setInventory, reservations, addReservation, updateReservation, removeReservation, savingsData, addSavingsEntry, removeSavingsEntry, clearSavings, replaceInventory, refreshAll, getAvailableQuantity }}>
+    <AppContext.Provider value={{
+      inventory, setInventory,
+      reservations, addReservation, updateReservation, removeReservation,
+      savingsData, addSavingsEntry, upsertSavingsEntry, replaceSavingsEntry, removeSavingsEntry, clearSavings,
+      replaceInventory, refreshAll, getAvailableQuantity,
+    }}>
       {children}
     </AppContext.Provider>
   );

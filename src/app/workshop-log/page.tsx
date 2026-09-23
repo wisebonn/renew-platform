@@ -10,21 +10,21 @@ export default function WorkshopLog() {
   const [filter, setFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
+  const fetchLogs = async () => {
+    const { data } = await supabase.from("repairs").select("*").order("created_at", { ascending: false });
+    if (data) setLogs(data);
+    setIsLoading(false);
+  };
+
   useEffect(() => {
-    const fetchLogs = async () => {
-      const { data } = await supabase.from('repairs').select('*').order('created_at', { ascending: false });
-      if (data) setLogs(data);
-      setIsLoading(false);
-    };
     fetchLogs();
+    const interval = setInterval(fetchLogs, 8000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Fallback: look up description from reservation if missing on repair
   const resolveDescription = (log: any) => {
     if (log.description && log.description !== "—") return log.description;
-    const match = reservations.find((r: any) =>
-      r.id === log.reservation_id || r.description === log.description
-    );
+    const match = reservations.find((r: any) => r.id === log.reservation_id);
     return match?.description || log.description || "—";
   };
 
@@ -42,8 +42,12 @@ export default function WorkshopLog() {
   return (
     <main className="w-full">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="border-b border-gray-200 pb-4">
-          <h2 className="text-2xl font-bold text-gray-900">Workshop Log Database</h2>
+        <div className="border-b border-gray-200 pb-4 flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Workshop Log Database</h2>
+            <p className="text-xs text-gray-500 mt-1">Auto-refreshes every 8 seconds.</p>
+          </div>
+          <button onClick={fetchLogs} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 px-4 rounded-lg">🔄 Refresh</button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -72,14 +76,7 @@ export default function WorkshopLog() {
             <div className="overflow-auto max-h-[500px]">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 text-gray-700 sticky top-0 border-b border-gray-200">
-                  <tr>
-                    <th className="p-2">Date</th>
-                    <th className="p-2">Item Description</th>
-                    <th className="p-2">Fault</th>
-                    <th className="p-2">Season</th>
-                    <th className="p-2 text-center">Physical</th>
-                    <th className="p-2 text-right">Repair Cost</th>
-                  </tr>
+                  <tr><th className="p-2">Date</th><th className="p-2">Item Description</th><th className="p-2">Fault</th><th className="p-2">Season</th><th className="p-2 text-center">Physical</th><th className="p-2 text-right">Repair Cost</th></tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {filteredLogs.map((log, idx) => (
@@ -88,11 +85,7 @@ export default function WorkshopLog() {
                       <td className="p-2 font-semibold text-gray-900">{resolveDescription(log)}</td>
                       <td className="p-2"><span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs">{log.fault_type || "—"}</span></td>
                       <td className="p-2 text-xs">{log.season || "—"}</td>
-                      <td className="p-2 text-center">
-                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">
-                          P{log.rating || "?"} — {physicalGradeLabel(log.rating)}
-                        </span>
-                      </td>
+                      <td className="p-2 text-center"><span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">P{log.rating || "?"} — {physicalGradeLabel(log.rating)}</span></td>
                       <td className="p-2 text-right">KES {parseFloat(log.repair_cost || 0).toLocaleString()}</td>
                     </tr>
                   ))}
